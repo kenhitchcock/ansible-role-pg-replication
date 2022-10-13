@@ -1,0 +1,79 @@
+---
+
+# Which local user is used to manage the postgresql services, files ect..
+pg_replication_database_user: postgres
+pg_replication_database_group: postgres
+
+# Options are logical and log_shipping_with_streaming
+pg_replication_type: log_shipping_with_streaming
+
+pg_replication_backup: true
+pg_replication_backup_loc: /tmp
+
+# Details of the user and database that will be replicated
+pg_replication_db: postgres 
+pg_replication_user: repuser
+
+# Used when log shipping replication is used.
+pg_replication_postgresql_path: /var/lib/pgsql
+pg_replication_postgresql_data_dir: data
+pg_replication_postgresql_conf_file: postgresql.conf
+pg_replication_export_path: /tmp
+pg_replication_local_export_path: /tmp
+pg_replication_export_file: postgresql_data.tar.gz
+
+
+pg_replication_archive_wals: false
+# If you are going to use an NFS share for the archive this variable needs to be populated
+pg_replication_nfs_export: 
+
+pg_replication_hba_conf_file: /var/lib/pgsql/data/pg_hba.conf
+
+pg_hba_config:
+  hba_config1:
+    pg_replication_db: tower
+    pg_replication_source: 0.0.0.0/0
+  hba_config2:
+    pg_replication_db: tower
+    pg_replication_source: 192.168.5.0/24
+
+
+#On the publisher side, wal_level must be set to logical, and max_replication_slots must be set to at least the number of subscriptions expected to connect, plus some reserve for table synchronization. And max_wal_senders should be set to at least the same as max_replication_slots plus the number of physical replicas that are connected at the same time.
+
+# Replication levels. Logical being the highest level
+pg_replication_level: logical
+
+pg_replication_use_slots: false
+pg_replication_mounted_path: /mnt/archive_export
+pg_replication_recovery_file: /var/lib/pgsql/data/recovery.conf
+
+# The connection info for the standbys to connect to the primary database server.
+# example of the configuration should be 'host=192.168.5.200 port=5432 user=towerrepuser'
+pg_replication_primary_conninfo: 
+
+# The path to a file that will be used to trigger the primary to standby failover.
+pg_replication_trigger_file: '/tmp/postgresql.trigger.5432'
+
+
+pg_replication_pubname: "dbpublisher"
+pg_replication_subname: "dbsubscriber"
+pg_replication_tablenames: "CREATE PUBLICATION {{pg_replication_pubname}} FOR TABLE " 
+
+
+# Replication parameters for log shipping
+pg_replication_param_archive_mode: "off"
+pg_replication_param_listen_address: '*'
+pg_replication_param_max_connections: 100
+pg_replication_param_shared_buffers: 128MB
+pg_replication_param_work_mem: 4MB
+pg_replication_param_maintenance_work_mem: 64MB
+pg_replication_param_wal_keep_segments: 8
+pg_replication_param_archive_timeout: 60
+pg_replication_param_max_wal_size: 1GB
+pg_replication_param_min_wal_size: 128MB
+pg_replication_param_max_replication_slots: 60
+
+pg_replication_param_max_concurrent_connections: 10
+pg_replication_param_max_logical_replication_workers: 60
+pg_replication_param_max_worker_processes: 60
+

@@ -1,0 +1,33 @@
+---
+
+- name: "Primary database Configuration"
+  become_user: postgres
+  block:
+
+    - name: "Return all the slot names currently created."
+      postgresql_query:
+        db: "{{ pg_replication_db }}"
+        query: select slot_name from pg_replication_slots 
+      register: db_slotnames
+
+    - name: "Unset variables"
+      set_fact:
+        pg_replication_slotname_created: false 
+
+    - name: "Check if value in the slots table"
+      set_fact:
+        pg_replication_slotname_created: true 
+      when: "slot.slot_name == item"
+      loop: "{{db_slotnames.query_result }}"
+      loop_control:
+        loop_var: slot
+
+    - name: "Create Slots for any missing entries in the slotnames dictionary"
+      postgresql_query:
+        db: "{{ pg_replication_db }}"
+        query: "SELECT pg_create_logical_replication_slot('{{ item }}', 'pgoutput');"
+      when: not pg_replication_slotname_created
+
+
+
+

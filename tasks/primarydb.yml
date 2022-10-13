@@ -1,0 +1,153 @@
+---
+
+- name: "backup and pretasks"
+  become_user: "{{pg_replication_database_user}}"
+  block:
+    - name: "Dump the existing database {{ pg_replication_db }} to a file (with compression)"
+      postgresql_db:
+        name: "{{ pg_replication_db }}"
+        state: dump
+        target: "{{ pg_replication_backup_loc }}/full-{{ pg_replication_db }}-{{ansible_date_time.date}}.sql.gz"
+      when:
+        - pg_replication_backup
+
+    - name: "Ensure that no Recovery file exists on a primary database node."
+      file:
+        path: "{{pg_replication_recovery_file}}"
+        state: absent 
+
+    - name: "Connect to {{ pg_replication_db }} database and add {{ pg_replication_user }} user privileges from there"
+      postgresql_user:
+        db: "{{ pg_replication_db }}"
+        name: "{{ pg_replication_user }}"
+        priv: "ALL"
+        role_attr_flags: "REPLICATION,LOGIN"
+        state: present
+
+    - name: "Set replication method"
+      postgresql_set:
+        name: wal_level
+        value: "{{ pg_replication_level }}"
+
+- name: "Log shipping with streaming replication"
+  become_user: "{{pg_replication_database_user}}"
+  block:
+    - name: "Configure postgresql.conf"
+      template:
+        src: templates/postgresql_logshipping.j2
+        dest: "{{pg_replication_postgresql_path}}/{{pg_replication_postgresql_data_dir}}/{{pg_replication_postgresql_conf_file}}"
+        owner: "{{pg_replication_database_user}}"
+        group: "{{pg_replication_database_group}}"
+        mode: '0600'
+
+    - name: "Create mount directory if does not exist"
+      file:
+        path: "{{pg_replication_mounted_path}}"
+        state: directory
+        mode: '0755'
+        recurse: yes
+        owner: postgres
+        group: postgres
+      when: 
+        - pg_replication_archive_wals
+
+  when:
+    - 'pg_replication_type == "log_shipping_with_streaming"'
+
+- name: "Mount disk to be used for archive logs"
+  become: true
+  ansible.posix.mount:
+    src: "{{pg_replication_nfs_export}}"
+    path: "{{pg_replication_mounted_path}}"
+    opts: rw,sync
+    state: mounted
+    fstype: nfs
+  when:
+    - 'pg_replication_type == "log_shipping_with_streaming"'
+    - pg_replication_archive_wals
+    - pg_replication_nfs_export is defined
+
+
+# Logical replication configuration will work with the following but be aware that 
+# sequences are not replicated and you can be left with conflicts to manually sort out.
+- name: "Logical replication method"
+  become_user: "{{pg_replication_database_user}}"
+  block:
+    - name: "Dump the existing database {{ pg_replication_db }} to a file schema only"
+      postgresql_db:
+        name: "{{ pg_replication_db }}"
+        state: dump
+        target: "{{ pg_replication_backup_loc }}/{{ pg_replication_db }}.sql.gz"
+        dump_extra_args: --schema-only
+
+    - name: "Fetch backup from from primary database server."
+      fetch:
+        src: "{{ pg_replication_backup_loc }}/{{ pg_replication_db }}.sql.gz"
+        dest: "{{ pg_replication_backup_loc }}/{{ pg_replication_db }}.sql.gz"
+        flat: yes
+
+    - name: "Configure postgresql.conf"
+      template:
+        src: templates/postgresql.j2
+        dest: "{{pg_replication_postgresql_path}}/{{pg_replication_postgresql_data_dir}}/{{pg_replication_postgresql_conf_file}}"
+        owner: "{{pg_replication_database_user}}"
+        group: "{{pg_replication_database_group}}"
+        mode: '0600'
+
+    - name: "Select query to list all tables"
+      postgresql_query:
+        db: "{{ pg_replication_db }}"
+        query: SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname != 'pg_catalog' AND schemaname != 'information_schema'
+      register: db_tablenames
+
+    - name: "Build a list of all the table names."
+      set_fact:
+        pg_replication_tablenames: "{{ pg_replication_tablenames }} {{ item.tablename }},"
+      with_items: "{{db_tablenames.query_result }}"
+   
+    - name: "Cleaning up the string"
+      set_fact:
+        pg_replication_query: "{{ pg_replication_tablenames | regex_replace('\\,$', '') }};"
+
+    - name: "Select query to list all publishers"
+      postgresql_query:
+        db: "{{ pg_replication_db }}"
+        query: select pubname from pg_publication;
+      register: db_pubnames
+
+    - name: "Set some default values"
+      set_fact:
+        pg_replication_pubnamemissing: false
+
+    - name: "Check if value in the publiser table"
+      set_fact:
+        pg_replication_pubnamemissing: true
+      when: "item.pubname != pg_replication_pubname"
+      with_items: "{{db_pubnames.query_result }}"
+
+    - name: "Create Publisher record"
+      postgresql_query:
+        db: "{{ pg_replication_db }}"
+        query: "{{ pg_replication_query }}"
+      when: pg_replication_pubnamemissing
+  when:
+    - 'pg_replication_type == "logical"'
+
+- name: "Grant users {{ item.value.pg_replication_user }} access to databases {{ item.value.pg_replication_db }} from {{ item.value.pg_replication_source }} using md5 authentication."
+  postgresql_pg_hba:
+    dest: "{{ pg_replication_hba_conf_file }}"
+    contype: "{{ item.value.pg_hba_contype }}"
+    users: "{{ item.value.pg_hba_user }}"
+    source: "{{ item.value.pg_hba_source }}" 
+    databases: "{{ item.value.pg_hba_db }}"
+    method: "{{ item.value.pg_hba_method }}"
+    create: true
+  loop: "{{ pg_hba_config|dict2items }}"
+  when: 
+    - pg_replication_hba_config_required
+
+- name: "Make sure postgresql service is restarted"
+  systemd:
+    state: restarted
+    name: postgresql
+

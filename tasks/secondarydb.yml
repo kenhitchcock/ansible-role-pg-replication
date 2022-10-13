@@ -1,0 +1,150 @@
+---
+
+- name: "Logical replication on standby database servers prep tasks."
+  become_user: "{{pg_replication_database_user}}"
+  block:
+    - name: "Copy database backup file."
+      copy:
+        src: "{{ pg_replication_backup_loc }}/{{ pg_replication_db }}.sql.gz"
+        dest: "{{ pg_replication_backup_loc }}/{{ pg_replication_db }}.sql.gz"
+
+    - name: "Create a new database so that a clean replication can be done."
+      postgresql_db:
+        name: "{{ pg_replication_db }}"
+      
+    - name: "Restore the existing database {{ pg_replication_db }} from a file (with compression)"
+      postgresql_db:
+        name: "{{ pg_replication_db }}"
+        state: restore
+        target: "{{ pg_replication_backup_loc }}/{{ pg_replication_db }}.sql.gz"
+      when:
+        - pg_replication_backup
+  when:
+    - 'pg_replication_type == "logical"'
+
+- name: "Log shipping Replication configuration on standby servers."
+  block:
+    - name: "Make sure postgresql service is stopped"
+      systemd:
+        state: stopped
+        name: postgresql
+
+    - name: "Recursively remove {{pg_replication_postgresql_path}}/{{pg_replication_postgresql_data_dir}} directory"
+      file:
+        path: "{{pg_replication_postgresql_path}}/{{pg_replication_postgresql_data_dir}}"
+        state: absent
+
+    - name: "Replicate primary data structure to secondary systems and start streaming"
+      become_user: "{{pg_replication_database_user}}"
+      shell: 
+        cmd: pg_basebackup -h "{{ pg_replication_master }}" -D "{{pg_replication_postgresql_path}}/{{pg_replication_postgresql_data_dir}}" -X stream -P -U "{{ pg_replication_user }}" 
+        chdir: "{{pg_replication_postgresql_path}}/"
+
+    - name: "Create mount directory if does not exist"
+      file:
+        path: "{{pg_replication_mounted_path}}"
+        state: directory
+        mode: '0755'
+        recurse: yes
+        owner: "{{pg_replication_database_user}}" 
+        group: "{{pg_replication_database_group}}"
+      when:
+        - pg_replication_archive_wals
+        - pg_replication_nfs_export is defined
+
+    - name: "Mount Disk to be used for archive logs"
+      ansible.posix.mount:
+        src: "{{pg_replication_nfs_export}}"
+        path: "{{pg_replication_mounted_path}}"
+        opts: rw,sync
+        state: mounted
+        fstype: nfs
+      when:
+        - pg_replication_archive_wals
+        - pg_replication_nfs_export is defined
+
+    - name: "Remove remove recovery.done if it exists."
+      file:
+        path: "{{pg_replication_postgresql_path}}/{{pg_replication_postgresql_data_dir}}/recovery.done"
+        state: absent
+
+    - name: "Create Recovery file"
+      become_user: "{{pg_replication_database_user}}"
+      file:
+        path: "{{pg_replication_recovery_file}}"
+        state: touch
+        mode: '0700'
+
+    - name: "Insert log shipping replication configuration into recovery.conf"
+      become_user: "{{pg_replication_database_user}}"
+      blockinfile:
+        path: "{{pg_replication_recovery_file}}" 
+        marker: "#### {mark} ANSIBLE MANAGED BLOCK ####"
+        block: |
+          standby_mode = 'on'
+          primary_conninfo = '{{pg_replication_primary_conninfo}}'
+          trigger_file = '{{pg_replication_trigger_file}}'
+          recovery_target_timeline = 'latest'
+
+    - name: "Insert log shipping replication configuration into recovery.conf"
+      become_user: "{{pg_replication_database_user}}"
+      blockinfile:
+        path: "{{pg_replication_recovery_file}}"
+        marker: "#### {mark} ANSIBLE MANAGED BLOCK - archive cleanup ####"
+        block: |
+          restore_command = 'cp {{pg_replication_mounted_path}}/%f %p'
+          archive_cleanup_command = 'pg_archivecleanup {{pg_replication_mounted_path}} %r'
+      when: 
+        - pg_replication_archive_wals
+
+  when:
+    - 'pg_replication_type == "log_shipping_with_streaming"'
+
+- name: "Logical Replication configuration on standbys"
+  block:      
+    - name: "Set the amount of replication slots that would be required"
+      postgresql_set:
+        name: max_replication_slots
+        value: "{{ pg_replication_slots }}"
+
+    - name: "Set the max amount of logical replication workers."
+      postgresql_set:
+        name: max_logical_replication_workers
+        value: "{{ pg_replication_max_logical_replication_workers }}"
+
+    - name: "Set the max worker processes."
+      postgresql_set:
+        name: max_worker_processes
+        value: "{{ pg_replication_max_worker_processes }}"
+
+    - name: "Return all the subscription names currently created."
+      postgresql_query:
+        db: "{{ pg_replication_db }}"
+        query: select subname from pg_subscription
+      register: db_subnames
+
+    - name: "Unset variables"
+      set_fact:
+        pg_replication_subname_created: false
+
+    - name: "Check if value in the subscription table"
+      set_fact:
+        pg_replication_subname_created: true
+      when: "subs.subname == pg_replication_subname"
+      loop: "{{db_subnames.query_result }}"
+      loop_control:
+        loop_var: subs
+
+    - name: "Create subscription record"
+      postgresql_query:
+        db: "{{ pg_replication_db }}"
+        query: "CREATE SUBSCRIPTION {{ pg_replication_subname }} CONNECTION 'dbname={{ pg_replication_db }} host={{pg_replication_master}} user={{ pg_replication_user }}' PUBLICATION {{ pg_replication_pubname }} WITH (slot_name={{pg_replication_slotname}}, create_slot=false);;"
+      when: not pg_replication_subname_created 
+
+  when:
+    - 'pg_replication_type == "logical"'
+
+- name: "Make sure postgresql service is restarted"
+  systemd:
+    state: restarted
+    name: postgresql

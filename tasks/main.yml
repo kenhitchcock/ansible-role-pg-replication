@@ -1,0 +1,22 @@
+---
+
+- name: "Cleanup tasks"
+  include_tasks: cleanup.yml
+
+- name: "Configure replication on primary database server"
+  include_tasks: primarydb.yml
+  when:
+    - "inventory_hostname == pg_replication_master"
+
+- name: "Configure replication slots"
+  include_tasks: replicationslots.yml
+  loop: "{{ pg_slot_names }}"
+  when:
+    - "inventory_hostname == pg_replication_master"
+    - pg_replication_use_slots
+
+- name: "Configure replication on secondary database servers"
+  include_tasks: secondarydb.yml
+  when:
+    - "inventory_hostname != pg_replication_master"
+

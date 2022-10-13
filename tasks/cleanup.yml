@@ -1,0 +1,11 @@
+---
+
+- name: "Remove any recovery.done files."
+  file:
+    state: absent
+    path: "{{pg_replication_postgresql_path}}/{{pg_replication_postgresql_data_dir}}/recovery.done"
+
+- name: "Remove any trigger files."
+  file:
+    state: absent
+    path: "{{pg_replication_trigger_file}}"
