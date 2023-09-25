@@ -1,8 +1,13 @@
 ---
 
-- name: "Primary database Configuration"
+- name: "Primary database slot Configuration"
   become_user: postgres
   block:
+
+    - name: "Debugging"
+      debug:
+        msg: "{{item}}"
+
 
     - name: "Return all the slot names currently created."
       postgresql_query:

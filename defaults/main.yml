@@ -1,5 +1,8 @@
 ---
 
+# Postgresql version that will be used
+pg_replication_postgresql_version: 13
+
 # Which local user is used to manage the postgresql services, files ect..
 pg_replication_database_user: postgres
 pg_replication_database_group: postgres
@@ -13,6 +16,7 @@ pg_replication_backup_loc: /tmp
 # Details of the user and database that will be replicated
 pg_replication_db: postgres 
 pg_replication_user: repuser
+pg_replication_port: 5432
 
 # Used when log shipping replication is used.
 pg_replication_postgresql_path: /var/lib/pgsql
@@ -44,6 +48,8 @@ pg_hba_config:
 pg_replication_level: logical
 
 pg_replication_use_slots: false
+pg_replication_slotname: firststandby
+
 pg_replication_mounted_path: /mnt/archive_export
 pg_replication_recovery_file: /var/lib/pgsql/data/recovery.conf
 

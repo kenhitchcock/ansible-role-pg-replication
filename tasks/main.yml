@@ -3,20 +3,31 @@
 - name: "Cleanup tasks"
   include_tasks: cleanup.yml
 
+- name: "Make sure postgresql service is not running on all standby nodes"
+  ansible.builtin.systemd:
+    state: stopped
+    name: postgresql
+  when:
+    - inventory_hostname != pg_replication_master
+
 - name: "Configure replication on primary database server"
   include_tasks: primarydb.yml
   when:
-    - "inventory_hostname == pg_replication_master"
+    - pg_replication_master in inventory_hostname
 
-- name: "Configure replication slots"
-  include_tasks: replicationslots.yml
-  loop: "{{ pg_slot_names }}"
-  when:
-    - "inventory_hostname == pg_replication_master"
-    - pg_replication_use_slots
+# Dont need to precreate the slots if we are using the postgresql commands.
+#- name: "Configure replication slots"
+#  include_tasks: replicationslots.yml
+#  loop: "{{ pg_slot_names }}"
+#  when:
+#    - pg_replication_use_slots
+#    - pg_replication_master in inventory_hostname
 
-- name: "Configure replication on secondary database servers"
+- name: "Configure replication on secondary database server - *** {{item.value.slot_server_name}} ***"
   include_tasks: secondarydb.yml
+  loop: "{{ pg_slot_names|dict2items }}"
   when:
-    - "inventory_hostname != pg_replication_master"
+    - inventory_hostname == item.value.slot_server_name
+    - inventory_hostname != pg_replication_master
+
 
