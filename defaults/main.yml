@@ -25,37 +25,52 @@ pg_replication_postgresql_conf_file: postgresql.conf
 pg_replication_export_path: /tmp
 pg_replication_local_export_path: /tmp
 pg_replication_export_file: postgresql_data.tar.gz
-
-
 pg_replication_archive_wals: false
 # If you are going to use an NFS share for the archive this variable needs to be populated
 pg_replication_nfs_export: 
 
+
+
+# ################## HBA CONFIGURATION ######################
+# HBA configuration for the Postgresql servers. The default configuration is unsecure. You should be restricting as much as possible.
 pg_replication_hba_conf_file: /var/lib/pgsql/data/pg_hba.conf
+pg_replication_hba_config_required: true
 
 pg_hba_config:
   hba_config1:
-    pg_replication_db: tower
-    pg_replication_source: 0.0.0.0/0
+    pg_hba_contype: host
+    pg_hba_method: trust
+    pg_hba_user: towerrepuser
+    pg_hba_db: replication
+    pg_hba_source: 0.0.0.0/0
   hba_config2:
-    pg_replication_db: tower
-    pg_replication_source: 192.168.5.0/24
+    pg_hba_contype: host
+    pg_hba_method: trust
+    pg_hba_user: tower
+    pg_hba_db: tower
+    pg_hba_source: 0.0.0.0/0
 
 
-#On the publisher side, wal_level must be set to logical, and max_replication_slots must be set to at least the number of subscriptions expected to connect, plus some reserve for table synchronization. And max_wal_senders should be set to at least the same as max_replication_slots plus the number of physical replicas that are connected at the same time.
-
+# On the publisher side, wal_level must be set to logical, and max_replication_slots must be set to at least the number of subscriptions expected to connect, plus some reserve for table synchronization. And max_wal_senders should be set to at least the same as max_replication_slots plus the number of physical replicas that are connected at the same time.
 # Replication levels. Logical being the highest level
 pg_replication_level: logical
 
-pg_replication_use_slots: false
+pg_replication_use_slots: true
+pg_replication_slots: 1
 pg_replication_slotname: firststandby
 
 pg_replication_mounted_path: /mnt/archive_export
 pg_replication_recovery_file: /var/lib/pgsql/data/recovery.conf
 
+# ################ PRIMARY database connection ########################################
 # The connection info for the standbys to connect to the primary database server.
-# example of the configuration should be 'host=192.168.5.200 port=5432 user=towerrepuser'
-pg_replication_primary_conninfo: 
+# example of the configuration should be 
+# 'host=192.168.5.200 port=5432 user=towerrepuser'
+# The host can be changed each time you failover or you can set the host to the 
+# floating IP
+pg_replication_primary_conninfo: "SET ME"
+
+########################################################################################
 
 # The path to a file that will be used to trigger the primary to standby failover.
 pg_replication_trigger_file: '/tmp/postgresql.trigger.5432'
@@ -78,7 +93,6 @@ pg_replication_param_archive_timeout: 60
 pg_replication_param_max_wal_size: 1GB
 pg_replication_param_min_wal_size: 128MB
 pg_replication_param_max_replication_slots: 60
-
 pg_replication_param_max_concurrent_connections: 10
 pg_replication_param_max_logical_replication_workers: 60
 pg_replication_param_max_worker_processes: 60

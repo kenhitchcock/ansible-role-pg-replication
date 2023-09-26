@@ -23,7 +23,7 @@
 #    - pg_replication_use_slots
 #    - pg_replication_master in inventory_hostname
 
-- name: "Configure replication on secondary database server - *** {{item.value.slot_server_name}} ***"
+- name: "Configure replication on secondary database server - *** item.value.slot_server_name ***"
   include_tasks: secondarydb.yml
   loop: "{{ pg_slot_names|dict2items }}"
   when:

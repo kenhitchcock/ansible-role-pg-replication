@@ -40,11 +40,6 @@
       when:
         - pg_replication_use_slots
 
-#    - name: "Drop any slots"
-#      shell:
-#        psql -d awx -c  "SELECT pg_drop_replication_slot('firststandby');"
-#      ignore_errors: yes
-
     - name: "Configure postgresql.conf"
       ansible.builtin.template:
         src: templates/postgresql_10_logshipping.j2
